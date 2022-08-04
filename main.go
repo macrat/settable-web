@@ -38,15 +38,19 @@ func (s *Store) pushLog(action, message string) {
 func (s *Store) Set(value string) {
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
-
 	s.pushLog("SET", s.value+" -> "+value)
 	s.value = value
+}
+
+func (s *Store) Peek() string {
+	s.cond.L.Lock()
+	defer s.cond.L.Unlock()
+	return s.value
 }
 
 func (s *Store) Get() string {
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
-
 	s.pushLog("GET", s.value)
 	return s.value
 }
@@ -54,7 +58,6 @@ func (s *Store) Get() string {
 func (s *Store) Log() string {
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
-
 	return "<ol start=" + strconv.Itoa(s.offset+1) + ">" + strings.Join(s.log, "") + "</ol>"
 }
 
@@ -62,7 +65,6 @@ func (s *Store) WaitNewEntry() string {
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
 	s.cond.Wait()
-
 	return s.log[len(s.log)-1]
 }
 
@@ -73,7 +75,7 @@ func main() {
 	header := "<!DOCTYPE html><html lang=en><title>settable-web</title><a href=/set>set</a> | <a href=/get>get</a> | <a href=/log>log</a><hr>"
 
 	setPage := func(c echo.Context) error {
-		return c.HTML(http.StatusOK, header+"current value: "+template.HTMLEscapeString(s.Get())+"<form action=/set method=post><input name=value autofocus /><input type=submit /></form>")
+		return c.HTML(http.StatusOK, header+"current value: "+template.HTMLEscapeString(s.Peek())+"<form method=post><input name=value autofocus /><input type=submit /></form>")
 	}
 
 	e.GET("/set", setPage)
@@ -87,6 +89,7 @@ func main() {
 	})
 
 	e.GET("/log", func(c echo.Context) error {
+		c.Response().Header().Set(echo.HeaderCacheControl, "no-store")
 		return c.HTML(http.StatusOK, header+s.Log()+"<script>new WebSocket(`ws://${location.host}/log/ws`).onmessage = (ev) => document.querySelector('ol').innerHTML += ev.data</script>")
 	})
 	e.GET("/log/ws", echo.WrapHandler(websocket.Handler(func(ws *websocket.Conn) {
